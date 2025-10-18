@@ -1,0 +1,101 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Recommendation</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #e0f7ff 0%, #ffffff 100%);
+            font-family: 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .card {
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+            padding: 2.5rem;
+            max-width: 600px;
+            width: 100%;
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(8px);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+        }
+
+        h2 {
+            color: #0d6efd;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            border-radius: 12px;
+            font-weight: 600;
+            padding: 0.75rem;
+            transition: background 0.3s;
+        }
+
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+        }
+
+        input.form-control {
+            border-radius: 12px;
+            padding: 0.6rem 1rem;
+        }
+
+        .form-icon {
+            margin-right: 0.5rem;
+        }
+
+        @media (max-width: 576px) {
+            .card {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>🔎 Job Recommendation</h2>
+        <form action="/submit" method="post">
+            <div class="mb-3">
+                <label class="form-label"><i class="bi bi-person-fill form-icon"></i>Nama (opsional)</label>
+                <input type="text" class="form-control" name="nama" placeholder="Nama Anda">
+            </div>
+            <div class="mb-3">
+                <label class="form-label"><i class="bi bi-code-slash form-icon"></i>Skills <small class="text-muted">(pisahkan koma)</small></label>
+                <input type="text" class="form-control" name="skills" placeholder="Contoh: Python, SQL, Tableau" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label"><i class="bi bi-mortarboard-fill form-icon"></i>Pendidikan</label>
+                <input type="text" class="form-control" name="education" placeholder="Contoh: S1 Teknik Informatika">
+            </div>
+            <div class="mb-3">
+                <label class="form-label"><i class="bi bi-briefcase-fill form-icon"></i>Pengalaman</label>
+                <input type="text" class="form-control" name="experience" placeholder="Contoh: 3 years">
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Lihat Rekomendasi</button>
+        </form>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

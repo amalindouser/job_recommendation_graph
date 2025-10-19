@@ -1,16 +1,28 @@
 # app.py
+import os
 from flask import Flask, render_template, request
-from knowledge_graph.build_graph import build_graph
+import networkx as nx
 from recommender import score_user
 
 app = Flask(__name__)
 
-# Build graph once at startup (rebuild periodically or on demand if DB updates frequently)
-G = build_graph()
+# ================================
+# Load pre-built graph (GraphML)
+# ================================
+GRAPH_PATH = os.path.join("knowledge_graph", "output", "explainable_skills_graph.graphml")
 
+if not os.path.exists(GRAPH_PATH):
+    raise FileNotFoundError(f"Graph file tidak ditemukan: {GRAPH_PATH}. Jalankan build_graph() dulu!")
+
+G = nx.read_graphml(GRAPH_PATH)
+
+# ================================
+# Routes
+# ================================
 @app.route('/')
 def index():
     return render_template('index.html')
+
 
 @app.route('/submit', methods=['POST'])
 def submit():
@@ -23,14 +35,13 @@ def submit():
     user_skills = [s.strip() for s in skills_raw.split(",") if s.strip()]
 
     # get recommendations
-    results = score_user(G, user_skills, user_education=education, user_experience=experience, top_n=10)
+    results = score_user(
+        G,
+        user_skills,
+        user_education=education,
+        user_experience=experience,
+        top_n=10
+    )
 
-    # normalize output for template: matched_skills => list of (skill,weight)
-    for r in results:
-        # r already structured
-        pass
-
+    # results sudah siap, kirim ke template
     return render_template('results.html', nama=nama or "User", results=results)
-
-if __name__ == '__main__':
-    app.run(debug=True)

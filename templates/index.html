@@ -75,25 +75,42 @@
 <body>
     <div class="card">
         <h2>🔎 Job Recommendation</h2>
-        <form action="/submit" method="post">
-            <div class="mb-3">
-                <label class="form-label"><i class="bi bi-person-fill form-icon"></i>Nama (opsional)</label>
-                <input type="text" class="form-control" name="nama" placeholder="Nama Anda">
+                <form action="/submit" method="post">
+            <div class="row mb-3 align-items-center">
+                <label class="col-sm-3 col-form-label"><i class="bi bi-person-fill form-icon"></i>Nama</label>
+                <div class="col-sm-9">
+                    <input type="text" class="form-control" name="nama" placeholder="Nama Anda">
+                </div>
             </div>
-            <div class="mb-3">
-                <label class="form-label"><i class="bi bi-code-slash form-icon"></i>Skills <small class="text-muted">(pisahkan koma)</small></label>
-                <input type="text" class="form-control" name="skills" placeholder="Contoh: Python, SQL, Tableau" required>
+
+            <div class="row mb-3 align-items-center">
+                <label class="col-sm-3 col-form-label"><i class="bi bi-code-slash form-icon"></i>Skills</label>
+                <div class="col-sm-9">
+                    <input type="text" class="form-control" name="skills" placeholder="Contoh: Python, SQL, Tableau" required>
+                </div>
             </div>
-            <div class="mb-3">
-                <label class="form-label"><i class="bi bi-mortarboard-fill form-icon"></i>Pendidikan</label>
-                <input type="text" class="form-control" name="education" placeholder="Contoh: S1 Teknik Informatika">
+
+            <div class="row mb-3 align-items-center">
+                <label class="col-sm-3 col-form-label"><i class="bi bi-mortarboard-fill form-icon"></i>Education</label>
+                <div class="col-sm-9">
+                    <input type="text" class="form-control" name="education" placeholder="Contoh: S1 Teknik Informatika">
+                </div>
             </div>
-            <div class="mb-3">
-                <label class="form-label"><i class="bi bi-briefcase-fill form-icon"></i>Pengalaman</label>
-                <input type="text" class="form-control" name="experience" placeholder="Contoh: 3 years">
+
+            <div class="row mb-3 align-items-center">
+                <label class="col-sm-3 col-form-label"><i class="bi bi-briefcase-fill form-icon"></i>Experience</label>
+                <div class="col-sm-9">
+                    <input type="text" class="form-control" name="experience" placeholder="Contoh: 3 years">
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary w-100">Lihat Rekomendasi</button>
+
+            <div class="row">
+                <div class="col-sm-12">
+                    <button type="submit" class="btn btn-primary w-100">View Recommendations</button>
+                </div>
+            </div>
         </form>
+
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

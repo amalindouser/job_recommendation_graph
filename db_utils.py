@@ -1,66 +1,92 @@
-import sqlite3
+import os
+from supabase import create_client
 import networkx as nx
 
-DB_PATH = "knowledge_graph.db"
+# ================= Supabase Client =================
+SUPABASE_URL = "https://kxivlqmybqpjoiwcrsbf.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt4aXZscW15YnFwam9pd2Nyc2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA4NDIyNTUsImV4cCI6MjA3NjQxODI1NX0.m0dkK7WgSUloc9q_y92ylc4CHP3yaV0JIQQaFRKp81o"
 
-def save_graph_to_db(G, db_path=DB_PATH):
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Tabel nodes
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS nodes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT, type TEXT, code TEXT, category TEXT, label TEXT, description TEXT
-    )""")
-    # Tabel edges
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS edges (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_id INTEGER, target_id INTEGER,
-        relation TEXT, reason TEXT, confidence REAL,
-        FOREIGN KEY(source_id) REFERENCES nodes(id),
-        FOREIGN KEY(target_id) REFERENCES nodes(id)
-    )""")
+# ================= Bersihkan Tabel =================
+def clear_graph_tables():
+    try:
+        supabase.table("graph_edges").delete().neq("job_title", None).execute()
+        supabase.table("graph_nodes").delete().neq("label", None).execute()
+        print("✅ Tabel graph_nodes dan graph_edges berhasil dikosongkan.")
+    except Exception as e:
+        print("⚠️ Gagal menghapus data:", e)
 
-    # Simpan nodes
-    node_ids = {}
-    for n, d in G.nodes(data=True):
-        c.execute("""
-        INSERT INTO nodes (name, type, code, category, label, description)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """, (n, d.get("type"), d.get("code"), d.get("category"), d.get("label"), d.get("description")))
-        node_ids[n] = c.lastrowid
+# ================= Simpan Graph ke Supabase =================
+def save_graph_to_db(G):
+    # ===== Simpan nodes =====
+    nodes_to_insert = []
+    for node, data in G.nodes(data=True):
+        nodes_to_insert.append({
+            "name": data.get("name") or node,      # ✅ pastikan name tidak null
+            "type": data.get("type", ""),
+            "code": data.get("code", ""),
+            "category": data.get("category", ""),
+            "label": data.get("label", node),
+            "description": data.get("description", "")
+        })
 
-    # Simpan edges
-    for u, v, d in G.edges(data=True):
-        c.execute("""
-        INSERT INTO edges (source_id, target_id, relation, reason, confidence)
-        VALUES (?, ?, ?, ?, ?)
-        """, (node_ids[u], node_ids[v], d.get("relation"), d.get("reason"), d.get("confidence")))
+    batch_size = 500
+    for i in range(0, len(nodes_to_insert), batch_size):
+        batch = nodes_to_insert[i:i + batch_size]
+        supabase.table("graph_nodes").insert(batch).execute()
+        print(f"✅ Inserted nodes batch {i//batch_size + 1} ({len(batch)} rows)")
 
-    conn.commit()
-    conn.close()
-    print(f"Graph berhasil disimpan ke {db_path}")
+    # ===== Simpan edges =====
+    edges_to_insert = []
+    for u, v, data in G.edges(data=True):
+        edges_to_insert.append({
+            "job_title": u,
+            "skill_name": v,
+            "relation": data.get("relation", "uses_technology"),
+            "reason": data.get("reason", ""),
+            "confidence": data.get("confidence", 1.0)
+        })
+
+    for i in range(0, len(edges_to_insert), batch_size):
+        batch = edges_to_insert[i:i + batch_size]
+        supabase.table("graph_edges").insert(batch).execute()
+        print(f"✅ Inserted edges batch {i//batch_size + 1} ({len(batch)} rows)")
+
+    print(f"✅ Total {len(nodes_to_insert)} nodes dan {len(edges_to_insert)} edges disimpan ke Supabase.")
 
 
-def load_graph_from_db(db_path=DB_PATH):
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
+def load_graph_from_db():
+    response = supabase.table("graph_edges").select("*").execute()
+    data = response.data
+
+    if not data:
+        print("⚠️ Tidak ada data di tabel graph_edges.")
+        return nx.Graph()
 
     G = nx.Graph()
+    # insert nodes dulu supaya edge bisa connect
+    node_response = supabase.table("graph_nodes").select("*").execute()
+    for n in node_response.data:
+        label = n.get("label")
+        if not label:
+            continue
+        G.add_node(label,
+                   type=n.get("type", "skill"),
+                   code=n.get("code", ""),
+                   category=n.get("category", ""),
+                   description=n.get("description", ""))
 
-    c.execute("SELECT id, name, type, code, category, label, description FROM nodes")
-    nodes = c.fetchall()
-    node_map = {}
-    for node_id, name, ntype, code, category, label, desc in nodes:
-        G.add_node(name, type=ntype, code=code, category=category, label=label, description=desc)
-        node_map[node_id] = name
-
-    c.execute("SELECT source_id, target_id, relation, reason, confidence FROM edges")
-    for source_id, target_id, relation, reason, confidence in c.fetchall():
-        G.add_edge(node_map[source_id], node_map[target_id],
-                   relation=relation, reason=reason, confidence=confidence)
-
-    conn.close()
+    # insert edges
+    for row in data:
+        job = row.get("job_title")
+        skill = row.get("skill_name")
+        if not job or not skill:
+            continue
+        G.add_edge(job, skill,
+                   relation=row.get("relation", "uses_technology"),
+                   reason=row.get("reason", ""),
+                   confidence=row.get("confidence", 1.0))
+    print(f"✅ Graph dibangun dari Supabase ({len(G.nodes())} node, {len(G.edges())} edge)")
     return G
+

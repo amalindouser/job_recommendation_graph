@@ -1,167 +1,178 @@
-# recommender.py
-import networkx as nx
-from collections import defaultdict
-import random
+import os
 import re
+from typing import List, Dict, Union, Optional
+import networkx as nx
+from rapidfuzz import fuzz
+import numpy as np
+from datetime import datetime, timedelta
+
+if not hasattr(np, "float_"):
+    np.float_ = np.float64
+if not hasattr(np, "int_"):
+    np.int_ = np.int64
+if not hasattr(np, "complex_"):
+    np.complex_ = np.complex128
 
 
-def random_phrase(options):
-    """Pilih satu kalimat acak untuk variasi narasi."""
-    return random.choice(options)
+def normalize(text: str) -> str:
+    text = str(text).lower()
+    text = re.sub(r"[^a-z0-9+# ]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
-def clean_skill_name(skill):
-    """Hilangkan kata yang aneh atau tidak relevan dari nama skill."""
-    # Hilangkan teks terlalu teknis / merek / software product
-    if any(bad in skill.lower() for bad in [
-        "app", "tool", "product", "system", "application", "platform", "package"
-    ]):
-        return None
-    # Hilangkan simbol atau teks tidak jelas
-    skill = re.sub(r"[^a-zA-Z0-9+\-#., ]", "", skill).strip()
-    return skill if skill else None
+def parse_date_fuzzy(date_str):
+    if not date_str or str(date_str).strip() == "":
+        return datetime(1900, 1, 1)
+
+    s = str(date_str).lower().strip()
+    now = datetime.now()
+    try:
+        if "day" in s:
+            num = int(re.findall(r'\d+', s)[0]) if re.findall(r'\d+', s) else 0
+            return now - timedelta(days=num)
+        elif "hour" in s:
+            return now
+        elif "week" in s:
+            num = int(re.findall(r'\d+', s)[0]) if re.findall(r'\d+', s) else 0
+            return now - timedelta(weeks=num)
+        elif "month" in s:
+            num = int(re.findall(r'\d+', s)[0]) if re.findall(r'\d+', s) else 0
+            return now - timedelta(days=num * 30)
+        elif "year" in s:
+            num = int(re.findall(r'\d+', s)[0]) if re.findall(r'\d+', s) else 0
+            return now - timedelta(days=num * 365)
+
+        for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]:
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return datetime(1900, 1, 1)
 
 
-def score_user(G, user_skills, user_education=None, user_experience=None, top_n=10):
+def load_graph_from_path(graph_path: str) -> nx.Graph:
+    if not os.path.exists(graph_path):
+        raise FileNotFoundError(f"File graph tidak ditemukan: {graph_path}")
+    G = nx.read_graphml(graph_path)
+    return G
+
+
+def recommend_jobs(
+    user_skills: Union[str, List[str]],
+    graph: Optional[nx.Graph] = None,
+    graph_path: str = "knowledge_graph/output/jobs_tech_graph_fuzzy.graphml",
+    top_n: int = 10,
+    similarity_threshold: int = 55
+) -> List[Dict]:
+    # Normalisasi input
+    if isinstance(user_skills, str):
+        user_skills = [user_skills]
+    user_skills = [normalize(s) for s in user_skills if str(s).strip()]
+    if not user_skills:
+        raise ValueError("Tidak ada skill yang diberikan.")
+
+    if graph is None:
+        graph = load_graph_from_path(graph_path)
+
     recommendations = []
-    job_nodes = [n for n, d in G.nodes(data=True) if d.get("type") == "job"]
+    now = datetime.now()
+
+   
+    job_nodes = [n for n, d in graph.nodes(data=True) if d.get("type") == "job"]
 
     for job in job_nodes:
-        job_data = G.nodes[job]
-        job_title = job_data.get("label", job)
-        neighbors = list(G.neighbors(job))
+        data = graph.nodes[job]
 
-        matched = []
-        score = 0
-        category_match = defaultdict(list)
+        job_title = data.get("label", job)
+        company = data.get("company", "Perusahaan tidak diketahui")
+        location = data.get("location", "")
+        link = data.get("link", "")
+        date_posted = data.get("date", "")
+        parsed_date = parse_date_fuzzy(date_posted)
+        status = data.get("status", "active")
 
-        for skill in user_skills:
-            for neighbor in neighbors:
-                if skill.lower() in neighbor.lower():
-                    edge_data = G[job][neighbor]
-                    w = edge_data.get("weight", 1.0)
-                    skill_cat = G.nodes[neighbor].get("category", "Uncategorized")
-
-                    matched.append((neighbor, w))
-                    category_match[skill_cat].append(neighbor)
-                    score += w
-
-        # Tambahkan bonus pendidikan & pengalaman
-        if user_education:
-            score += 0.05
-        if user_experience:
-            score += 0.05
-
-        if score <= 0:
+       
+        if (now - parsed_date).days > 90:
+            status = "expired"
+        if status != "active":
             continue
 
-        # Hitung kecocokan
-        match_percent = min(100, round(score * 10, 1))
-        if match_percent >= 75:
+      
+        job_skills = [n for n in graph.neighbors(job) if graph.nodes[n].get("type") == "skill"]
+        if not job_skills:
+            continue
+
+        matched, missing = [], []
+        total_score = 0
+
+        for js in job_skills:
+            js_norm = normalize(js)
+            best_ratio = 0
+            for us in user_skills:
+                ratio = fuzz.partial_ratio(us, js_norm)
+                if ratio > best_ratio:
+                    best_ratio = ratio
+            if best_ratio >= similarity_threshold:
+                matched.append(js)
+                total_score += best_ratio / 100
+            else:
+                missing.append(js)
+
+        if not matched:
+            continue
+
+    
+        normalized_score = total_score / max(len(job_skills), 1)
+        match_percent = round(normalized_score * 100, 1)
+
+        # Level kecocokan
+        if match_percent >= 85:
             fit_level = "Sangat Cocok"
-        elif match_percent >= 50:
+        elif match_percent >= 70:
             fit_level = "Cocok"
-        elif match_percent >= 25:
+        elif match_percent >= 50:
+            fit_level = "Cukup Cocok"
+        elif match_percent >= 30:
             fit_level = "Kurang Cocok"
         else:
             fit_level = "Tidak Cocok"
 
-        # =============================
-        # 🔍 Penjelasan Dinamis
-        # =============================
-        explain_parts = []
-
-        # 🧠 Skill relevan
-        if matched:
-            skill_highlights = []
-            for cat, skills in category_match.items():
-                clean_skills = [clean_skill_name(s) for s in skills]
-                clean_skills = [s for s in clean_skills if s]
-                if clean_skills and cat != "Uncategorized":
-                    example = ", ".join(clean_skills[:3])
-                    skill_highlights.append(f"{cat.lower()} seperti {example}")
-
-            if skill_highlights:
-                skill_sentence = random_phrase([
-                    f"Kemampuanmu di bidang {', '.join(skill_highlights)} menunjukkan arah yang selaras dengan pekerjaan {job_title}.",
-                    f"Kamu punya dasar kuat di {', '.join(skill_highlights)}, yang relevan untuk peran ini.",
-                    f"Skill yang kamu kuasai — {', '.join(skill_highlights)} — memberi pondasi kuat untuk posisi ini."
-                ])
-            else:
-                skill_sentence = random_phrase([
-                    f"Kamu memiliki beberapa skill yang relevan dengan pekerjaan {job_title}, walau belum mendalam.",
-                    f"Ada sedikit kecocokan antara skill-mu dan kebutuhan posisi ini."
-                ])
-            explain_parts.append(skill_sentence)
-        else:
-            explain_parts.append(random_phrase([
-                f"Tampaknya belum ada skill utama yang cocok dengan kebutuhan {job_title}.",
-                f"Belum ada kecocokan signifikan antara skill kamu dengan pekerjaan ini."
-            ]))
-
-        # 🎓 Pendidikan
-        if user_education:
-            edu_lower = user_education.lower()
-            if any(x in edu_lower for x in ["computer", "informatics", "it", "engineering", "data", "software"]):
-                explain_parts.append(random_phrase([
-                    "Latar belakang pendidikanmu sudah sangat relevan dengan bidang teknologi.",
-                    "Pendidikanmu memberikan fondasi teori yang kuat untuk posisi ini."
-                ]))
-            elif fit_level in ["Kurang Cocok", "Tidak Cocok"]:
-                explain_parts.append(random_phrase([
-                    f"Pendidikanmu ({user_education}) memang berbeda bidang, tapi bisa jadi nilai tambah unik bila digabungkan dengan pelatihan teknis.",
-                    f"Meskipun bidang studimu ({user_education}) tidak sejalan, kemampuan adaptasimu tetap bisa jadi keunggulan."
-                ]))
-            else:
-                explain_parts.append(random_phrase([
-                    f"Pendidikanmu ({user_education}) memberikan perspektif yang menarik untuk posisi ini.",
-                    f"Bidang studimu ({user_education}) mungkin tidak sepenuhnya terkait, namun tetap memberi kontribusi positif."
-                ]))
-
-        # 💼 Pengalaman kerja
-        if user_experience:
-            exp_lower = user_experience.lower()
-            if any(x in exp_lower for x in ["developer", "engineer", "programmer", "data", "it", "software"]):
-                explain_parts.append(random_phrase([
-                    "Pengalaman kerjamu sudah searah dengan tantangan di posisi ini.",
-                    "Dari sisi pengalaman, kamu tampak sudah terbiasa dengan lingkungan kerja serupa."
-                ]))
-            elif fit_level in ["Kurang Cocok", "Tidak Cocok"]:
-                explain_parts.append(random_phrase([
-                    f"Pengalamanmu ({user_experience}) belum banyak bersinggungan dengan bidang ini, tapi bisa jadi titik awal untuk berkembang.",
-                    f"Tampaknya pengalaman kerjamu ({user_experience}) masih di luar bidang ini, namun tetap memberi nilai tambah dalam hal analisis dan manajemen."
-                ]))
-            else:
-                explain_parts.append(random_phrase([
-                    f"Pengalamanmu ({user_experience}) memberi dasar kerja yang relevan untuk posisi ini.",
-                    f"Walau tidak sepenuhnya sejalan, pengalamanmu ({user_experience}) bisa memperkaya pendekatanmu dalam pekerjaan ini."
-                ]))
-
-        # 💡 Saran pengembangan (jika kurang cocok)
-        if fit_level in ["Kurang Cocok", "Tidak Cocok"]:
-            missing = [
-                clean_skill_name(s) for s in neighbors
-                if s not in [m[0] for m in matched]
-            ]
-            missing = [s for s in missing if s][:4]
-            if missing:
-                explain_parts.append(random_phrase([
-                    f"Untuk meningkatkan peluang, coba pelajari skill seperti {', '.join(missing)}.",
-                    f"Kamu bisa mulai memperluas kemampuan di area {', '.join(missing)} untuk memperkuat profilmu.",
-                    f"Mendalami topik seperti {', '.join(missing)} akan sangat membantu menyesuaikan diri dengan bidang ini."
-                ]))
-
-        explanation_text = " ".join(explain_parts)
+        matched_display = ", ".join(matched[:7])
+        missing_display = ", ".join(missing[:5])
+        explanation_parts = [
+            f"Kamu memiliki skill relevan seperti {matched_display}."
+        ]
+        if match_percent < 60 and missing:
+            explanation_parts.append(f"Pertimbangkan untuk mempelajari skill seperti {missing_display}.")
+        explanation = " ".join(explanation_parts)
 
         recommendations.append({
-            "job": job,
             "job_title": job_title,
+            "company": company,
+            "location": location,
+            "link": link,
+            "status": status,
+            "date_posted": date_posted,
             "match_percent": match_percent,
             "fit_level": fit_level,
-            "matched_skills": matched,
-            "explanation": explanation_text
+            "matched_skills": matched[:7],
+            "missing_skills": missing[:5],
+            "explanation": explanation,
+            "date_sort": parsed_date
         })
 
-    # Urutkan hasil
-    recommendations.sort(key=lambda x: x["match_percent"], reverse=True)
+    
+    recommendations.sort(key=lambda x: (x["match_percent"], x["date_sort"]), reverse=True)
     return recommendations[:top_n]
+
+
+
+if __name__ == "__main__":
+    print("🔍 Testing recommender with explainable output...")
+    skills = ["Python", "Machine Learning", "SQL", "AWS"]
+    res = recommend_jobs(skills)
+    for r in res[:5]:
+        print(f"{r['job_title']} ({r['match_percent']}%) - {r['fit_level']}")
+        print(f"  👉 {r['explanation']}\n")

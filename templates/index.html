@@ -106,7 +106,7 @@
         .fit-kurang { background-color: #fff3cd; color: #664d03; }
         .fit-tidak { background-color: #f8d7da; color: #842029; }
 
-    /* ✨ Animasi smooth untuk hasil rekomendasi */
+        /* ✨ Animasi smooth untuk hasil rekomendasi */
         .results-container {
             opacity: 0;
             transform: translateY(30px);
@@ -117,7 +117,6 @@
             opacity: 1;
             transform: translateY(0);
         }
-
     </style>
 </head>
 <body>
@@ -135,6 +134,11 @@
 <div class="content-wrapper">
     <div class="card mb-5">
         <h2 class="text-center text-primary mb-4">🔍 Temukan Rekomendasi Pekerjaan Anda</h2>
+
+        {% if error %}
+        <div class="alert alert-warning text-center">{{ error }}</div>
+        {% endif %}
+
         <form action="/" method="post">
             <div class="d-flex flex-wrap gap-3 form-row justify-content-between">
                 <div class="flex-fill">
@@ -143,15 +147,15 @@
                 </div>
                 <div class="flex-fill">
                     <label class="form-label fw-semibold"><i class="bi bi-code-slash me-1"></i>Skills</label>
-                    <input type="text" class="form-control" name="skills" placeholder="Contoh: Python, SQL, Tableau" required>
+                    <input type="text" class="form-control" name="skills" placeholder="Contoh: Python, SQL, Tableau" value="{{ skills }}" required>
                 </div>
                 <div class="flex-fill">
                     <label class="form-label fw-semibold"><i class="bi bi-mortarboard-fill me-1"></i>Education</label>
-                    <input type="text" class="form-control" name="education" placeholder="Contoh: S1 Teknik Informatika">
+                    <input type="text" class="form-control" name="education" placeholder="Contoh: S1 Teknik Informatika" value="{{ education }}">
                 </div>
                 <div class="flex-fill">
                     <label class="form-label fw-semibold"><i class="bi bi-briefcase-fill me-1"></i>Experience</label>
-                    <input type="text" class="form-control" name="experience" placeholder="Contoh: 3 years">
+                    <input type="text" class="form-control" name="experience" placeholder="Contoh: 3 years" value="{{ experience }}">
                 </div>
             </div>
             <div class="text-center mt-4">
@@ -162,60 +166,97 @@
         </form>
     </div>
 
-    <!-- Hasil Rekomendasi -->
-    {% if results %}
-    <div class="container results-container">
-        <div class="row g-4">
-            {% for job in results %}
-            <div class="col-md-6 col-lg-4">
-                <div class="card-job p-3 h-100 d-flex flex-column justify-content-between">
-                    <div>
-                        <h5 class="mb-1 text-primary">{{ job.job_title }}</h5>
-                        <p class="text-muted small mb-2">Kode: {{ job.job }}</p>
+<!-- Hasil Rekomendasi -->
+{% if results %}
+<div class="container results-container mt-4">
+    <div class="row g-4">
+        {% for job in results %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card-job p-3 h-100 d-flex flex-column justify-content-between border rounded shadow-sm">
+                <div>
+                    <!-- Judul & Perusahaan -->
+                    <h5 class="mb-1 text-primary">{{ job.job_title or 'Tidak diketahui' }}</h5>
+                    {% if job.company %}
+                    <p class="text-muted small mb-2">{{ job.company }}</p>
+                    {% endif %}
 
-                        <div class="progress mb-2" style="height:8px;">
-                            <div class="progress-bar" role="progressbar"
-                                style="width: {{ job.match_percent }}%;"
-                                aria-valuenow="{{ job.match_percent }}" aria-valuemin="0" aria-valuemax="100">
-                            </div>
-                        </div>
-                        <p class="mb-1">
-                            <strong>{{ job.match_percent }}%</strong> kecocokan 
-                            <span class="fit-badge
-                                {% if job.fit_level == 'Sangat Cocok' %}fit-sangat
-                                {% elif job.fit_level == 'Cocok' %}fit-cocok
-                                {% elif job.fit_level == 'Kurang Cocok' %}fit-kurang
-                                {% else %}fit-tidak{% endif %}">
-                                {{ job.fit_level }}
-                            </span>
-                        </p>
+                    <!-- Lokasi -->
+                    {% if job.location %}
+                    <p class="small mb-2 text-secondary">📍 {{ job.location }}</p>
+                    {% endif %}
 
-                        {% if job.matched_skills %}
-                        <div class="mt-2 mb-3">
-                            {% for skill, weight in job.matched_skills %}
-                            <span class="badge-skill">{{ skill }}</span>
-                            {% endfor %}
+                    <!-- Status Posting -->
+                    {% if job.status %}
+                    <p class="small mb-2 text-secondary">📅 Status: {{ job.status }}</p>
+                    {% endif %}
+
+                   <!-- Progress Match -->
+                    {% if job.match_percent is defined %}
+                    <div class="progress mb-2" style="height:8px;">
+                        <div class="progress-bar"
+                            role="progressbar"
+                            style="width: {{ job.match_percent }}%;
+                                background-color: #9b59b6;"
+                            aria-valuenow="{{ job.match_percent }}" aria-valuemin="0" aria-valuemax="100">
                         </div>
-                        {% endif %}
                     </div>
 
-                    <details>
-                        <summary>Alasan rekomendasi</summary>
-                        <div class="mt-2 text-secondary" style="font-size: 0.9rem; line-height: 1.5;">
-                            {{ job.explanation }}
-                        </div>
-                    </details>
+                    <p class="mb-1">
+                        <strong>{{ job.match_percent }}%</strong> kecocokan
+                        <span class="text-muted small">({{ job.fit_level }})</span>
+                    </p>
+                    {% endif %}
+
+
+                    <!-- Matched Skills -->
+                    {% if job.matched_skills %}
+                    <p class="small text-muted mb-2">
+                        ✅ <strong>Matched skills:</strong> {{ job.matched_skills | join(', ') }}
+                    </p>
+                    {% endif %}
+
+                    <!-- Missing Skills -->
+                    {% if job.missing_skills %}
+                    <p class="small text-muted mb-2">
+                        ⚙️ <strong>Disarankan belajar:</strong> {{ job.missing_skills | join(', ') }}
+                    </p>
+                    {% endif %}
+
+                    <!-- Link Lowongan -->
+                    {% if job.link %}
+                    <p>
+                        <a href="{{ job.link }}" target="_blank" class="text-decoration-none text-primary">
+                            🔗 Lihat Lowongan
+                        </a>
+                    </p>
+                    {% endif %}
                 </div>
+
+                <!-- Alasan Rekomendasi -->
+                {% if job.explanation %}
+                <details>
+                    <summary>💡 Alasan rekomendasi</summary>
+                    <div class="mt-2 text-secondary" style="font-size: 0.9rem; line-height: 1.5;">
+                        {{ job.explanation }}
+                    </div>
+                </details>
+                {% endif %}
             </div>
-            {% endfor %}
         </div>
+        {% endfor %}
     </div>
-    {% endif %}
+</div>
+{% else %}
+<p class="text-muted mt-3 text-center">
+    Belum ada rekomendasi. Masukkan skillmu untuk melihat pekerjaan yang sesuai.
+</p>
+{% endif %}
+
 </div>
 
 <!-- Footer -->
 <footer>
-    © 2025 Job Recommendation System — Made with by AMLD
+    © 2025 Job Recommendation System — Made with ❤️ by AMLD
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -223,10 +264,7 @@
 document.addEventListener("DOMContentLoaded", function() {
     const results = document.querySelector(".results-container");
     if (results) {
-        // Tambahkan delay sedikit biar smooth
-        setTimeout(() => {
-            results.classList.add("show");
-        }, 200);
+        setTimeout(() => results.classList.add("show"), 200);
     }
 });
 </script>

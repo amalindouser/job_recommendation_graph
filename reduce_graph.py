@@ -19,7 +19,7 @@ if not hasattr(np, "complex_"):
 # ===============================
 INPUT_PATH = "knowledge_graph/output/jobs_tech_graph_fuzzy.graphml"
 OUTPUT_PATH = "knowledge_graph/output/jobs_tech_graph_fuzzy_reduced.graphml"
-TOP_N_JOBS = 2000  # ambil 2000 job terbaru
+TOP_N_JOBS = 1000  # ambil 2000 job terbaru
 
 def parse_date(date_str):
     if not date_str or str(date_str).lower() in ["nan", "none", ""]:

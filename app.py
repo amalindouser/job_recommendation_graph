@@ -52,8 +52,3 @@ def index():
         nama=nama,
         skills=skills
     )
-
-
-
-if __name__ == "__main__":
-    app.run(debug=True)

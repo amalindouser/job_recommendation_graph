@@ -208,12 +208,14 @@
                     {% endif %}
 
 
-                    <!-- Matched Skills -->
                     {% if job.matched_skills %}
                     <p class="small text-muted mb-2">
-                        ✅ <strong>Matched skills:</strong> {{ job.matched_skills | join(', ') }}
+                        {% for skill in job.matched_skills %}
+                            <span class="badge bg-primary text-white me-1">{{ skill }}</span>
+                        {% endfor %}
                     </p>
                     {% endif %}
+
 
                     <!-- Missing Skills -->
                     {% if job.missing_skills %}

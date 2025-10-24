@@ -4,7 +4,7 @@ from recommender import recommend_jobs
 
 app = Flask(__name__)
 
-GRAPH_PATH = "knowledge_graph/output/jobs_tech_graph_fuzzy_reduced.graphml"
+GRAPH_PATH = "knowledge_graph/output/jobs_tech_graph_fuzzy_reduced.graphml.gz"
 
 print("🔄 Memuat graph jobs_tech_graph_fuzzy.graphml...")
 try:
@@ -52,3 +52,7 @@ def index():
         nama=nama,
         skills=skills
     )
+
+# if __name__ == "__main__":
+#     # Jalankan Flask app
+#     app.run(host="0.0.0.0", port=5000, debug=True)

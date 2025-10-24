@@ -62,7 +62,7 @@ def load_graph_from_path(graph_path: str) -> nx.Graph:
 def recommend_jobs(
     user_skills: Union[str, List[str]],
     graph: Optional[nx.Graph] = None,
-    graph_path: str = "knowledge_graph/output/jobs_tech_graph_fuzzy_reduced.graphml",
+    graph_path: str = "knowledge_graph/output/jobs_tech_graph_fuzzy_reduced.graphml.gz",
     top_n: int = 10,
     similarity_threshold: int = 55
 ) -> List[Dict]:

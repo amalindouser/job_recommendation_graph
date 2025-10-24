@@ -2,4 +2,4 @@ flask
 pandas
 networkx
 openpyxl
-vercel
+rapidfuzz

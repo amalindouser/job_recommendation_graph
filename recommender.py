@@ -1,178 +1,195 @@
 import os
 import re
-from typing import List, Dict, Union, Optional
 import networkx as nx
-from rapidfuzz import fuzz
 import numpy as np
-from datetime import datetime, timedelta
+from collections import Counter
+from difflib import get_close_matches
 
+# Fix kompatibilitas NumPy 2.0
 if not hasattr(np, "float_"):
     np.float_ = np.float64
 if not hasattr(np, "int_"):
     np.int_ = np.int64
-if not hasattr(np, "complex_"):
-    np.complex_ = np.complex128
 
-
+# ------------------------------
+# 🔧 Fungsi bantu normalisasi
+# ------------------------------
 def normalize(text: str) -> str:
-    text = str(text).lower()
-    text = re.sub(r"[^a-z0-9+# ]", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+    if not isinstance(text, str):
+        return ""
+    text = text.lower().strip()
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    return text
 
-
-def parse_date_fuzzy(date_str):
-    if not date_str or str(date_str).strip() == "":
-        return datetime(1900, 1, 1)
-
-    s = str(date_str).lower().strip()
-    now = datetime.now()
-    try:
-        if "day" in s:
-            num = int(re.findall(r'\d+', s)[0]) if re.findall(r'\d+', s) else 0
-            return now - timedelta(days=num)
-        elif "hour" in s:
-            return now
-        elif "week" in s:
-            num = int(re.findall(r'\d+', s)[0]) if re.findall(r'\d+', s) else 0
-            return now - timedelta(weeks=num)
-        elif "month" in s:
-            num = int(re.findall(r'\d+', s)[0]) if re.findall(r'\d+', s) else 0
-            return now - timedelta(days=num * 30)
-        elif "year" in s:
-            num = int(re.findall(r'\d+', s)[0]) if re.findall(r'\d+', s) else 0
-            return now - timedelta(days=num * 365)
-
-        for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]:
-            try:
-                return datetime.strptime(s, fmt)
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return datetime(1900, 1, 1)
-
-
-def load_graph_from_path(graph_path: str) -> nx.Graph:
+# ------------------------------
+# 📂 Load knowledge graph
+# ------------------------------
+def load_graph_from_path(graph_path: str):
     if not os.path.exists(graph_path):
-        raise FileNotFoundError(f"File graph tidak ditemukan: {graph_path}")
-    G = nx.read_graphml(graph_path)
+        raise FileNotFoundError(f"Graph file tidak ditemukan: {graph_path}")
+    
+    ext = os.path.splitext(graph_path)[1].lower()
+    if ext == ".gpickle":
+        G = nx.read_gpickle(graph_path)
+    elif ext == ".graphml":
+        G = nx.read_graphml(graph_path)
+    else:
+        raise ValueError("Gunakan file .gpickle atau .graphml")
+
+    print(f"✅ Graph berhasil dimuat ({len(G.nodes)} nodes, {len(G.edges)} edges)")
     return G
 
+# ------------------------------
+# 🔑 Skill alias
+# ------------------------------
+SKILL_ALIASES = {
+    "ml": "machine learning",
+    "dl": "deep learning",
+    "ai": "artificial intelligence",
+    "cv": "computer vision",
+    "cam": "computer aided manufacturing cam software",
+    "cics": "customer information control system",
+    "deacom": "deacom erp",
+    "paloalto advertising plan pro": "paloalto advertising plan pro"
+}
 
-def recommend_jobs(
-    user_skills: Union[str, List[str]],
-    graph: Optional[nx.Graph] = None,
-    graph_path: str = "knowledge_graph/output/jobs_tech_graph_fuzzy_reduced.graphml.gz",
-    top_n: int = 10,
-    similarity_threshold: int = 55
-) -> List[Dict]:
-    # Normalisasi input
+def map_alias(skill: str):
+    skill = normalize(skill)
+    return SKILL_ALIASES.get(skill, skill)
+
+# ------------------------------
+# 🗺️ Fungsi bantu location
+# ------------------------------
+def get_cities_by_country(G, country: str):
+    """Mengembalikan list city dari country tertentu di graph"""
+    country = country.lower().strip()
+    cities = set()
+    for n, d in G.nodes(data=True):
+        if str(d.get("type", "")).lower() == "location":
+            label = d.get("label", "")
+            if "," in label:
+                city, loc_country = [x.strip() for x in label.split(",", 1)]
+                if loc_country.lower() == country:
+                    cities.add(city)
+    return sorted(list(cities))
+
+# ------------------------------
+# 🧠 Rekomendasi jobs dengan filter lokasi
+def recommend_jobs(G, user_skills, top_n=10, filter_country=None, filter_city=None):
     if isinstance(user_skills, str):
         user_skills = [user_skills]
-    user_skills = [normalize(s) for s in user_skills if str(s).strip()]
-    if not user_skills:
-        raise ValueError("Tidak ada skill yang diberikan.")
 
-    if graph is None:
-        graph = load_graph_from_path(graph_path)
+    # normalisasi
+    user_skills = [map_alias(s) for s in user_skills if s.strip()]
+    user_skills_norm = [normalize(s) for s in user_skills]
+    print(f"🔍 Input skills: {', '.join(user_skills_norm)}")
 
-    recommendations = []
-    now = datetime.now()
+    results = []
 
-   
-    job_nodes = [n for n, d in graph.nodes(data=True) if d.get("type") == "job"]
-
-    for job in job_nodes:
-        data = graph.nodes[job]
-
-        job_title = data.get("label", job)
-        company = data.get("company", "Perusahaan tidak diketahui")
-        location = data.get("location", "")
-        link = data.get("link", "")
-        date_posted = data.get("date", "")
-        parsed_date = parse_date_fuzzy(date_posted)
-        status = data.get("status", "active")
-
-       
-        if (now - parsed_date).days > 90:
-            status = "expired"
-        if status != "active":
+    # Loop semua job di graph
+    for job, data in G.nodes(data=True):
+        if str(data.get("type", "")).lower() != "job":
             continue
 
-      
-        job_skills = [n for n in graph.neighbors(job) if graph.nodes[n].get("type") == "skill"]
+        # filter lokasi
+        job_location = data.get("location", "").lower()
+        if filter_country and filter_country.lower() not in job_location:
+            continue
+        if filter_city and filter_city.lower() not in job_location:
+            continue
+
+        # ambil skill job dari atribut node
+        job_skills = [normalize(s) for s in data.get("skills", "").split(",") if s.strip()]
         if not job_skills:
             continue
 
-        matched, missing = [], []
-        total_score = 0
+        matched = [s for s in job_skills if s in user_skills_norm]
+        missing = [s for s in job_skills if s not in user_skills_norm]
 
-        for js in job_skills:
-            js_norm = normalize(js)
-            best_ratio = 0
-            for us in user_skills:
-                ratio = fuzz.partial_ratio(us, js_norm)
-                if ratio > best_ratio:
-                    best_ratio = ratio
-            if best_ratio >= similarity_threshold:
-                matched.append(js)
-                total_score += best_ratio / 100
-            else:
-                missing.append(js)
+        # Hitung skor kecocokan
+        total_job_skills = len(job_skills) or 1
+        match_percent = round(len(matched) / total_job_skills * 100, 1)
 
-        if not matched:
-            continue
+        if match_percent == 0:
+            continue  # skip yang sama sekali tidak cocok
 
-    
-        normalized_score = total_score / max(len(job_skills), 1)
-        match_percent = round(normalized_score * 100, 1)
+                # Tentukan level kecocokan
+        if match_percent >= 80:
+            fit_level = "Very Suitable"
+            reason_text = (
+                f"This job is a strong match for you because you already have most of the required skills "
+                f"({', '.join(matched)}) needed for this position."
+                f"{' No additional skills are required.' if not missing else f' You may also benefit from learning: {', '.join(missing[:3])}.'}"
+            )
 
-        # Level kecocokan
-        if match_percent >= 85:
-            fit_level = "Sangat Cocok"
-        elif match_percent >= 70:
-            fit_level = "Cocok"
         elif match_percent >= 50:
-            fit_level = "Cukup Cocok"
-        elif match_percent >= 30:
-            fit_level = "Kurang Cocok"
+            fit_level = "Suitable"
+            reason_text = (
+                f"This job matches well with your background in {', '.join(matched)}. "
+                f"However, to be more competitive, consider improving your knowledge in: {', '.join(missing[:3]) or 'none'}."
+            )
+
+        elif match_percent >= 20:
+            fit_level = "Less Suitable"
+            reason_text = (
+                f"This job shares a few overlapping skills with your profile ({', '.join(matched)}), "
+                f"but most required skills are different — for example: {', '.join(missing[:3]) or 'none'}."
+            )
+
         else:
-            fit_level = "Tidak Cocok"
+            fit_level = "Not Suitable"
+            reason_text = (
+                f"This job has very few matching skills with your current profile. "
+                f"Main required skills include: {', '.join(job_skills[:5])}."
+            )
 
-        matched_display = ", ".join(matched[:7])
-        missing_display = ", ".join(missing[:5])
-        explanation_parts = [
-            f"Kamu memiliki skill relevan seperti {matched_display}."
-        ]
-        if match_percent < 60 and missing:
-            explanation_parts.append(f"Pertimbangkan untuk mempelajari skill seperti {missing_display}.")
-        explanation = " ".join(explanation_parts)
 
-        recommendations.append({
-            "job_title": job_title,
-            "company": company,
-            "location": location,
-            "link": link,
-            "status": status,
-            "date_posted": date_posted,
+        results.append({
+            "job_title": data.get("label") or data.get("title") or str(job),
+            "company": data.get("company", "Unknown Company"),
+            "location": data.get("location", "Unknown Location"),
+            "job_type": data.get("job_type", "N/A"),
+            "date": data.get("date", ""),
+            "skills_job": job_skills[:10],
+            "matched_skills": matched[:5],
+            "missing_skills": missing[:5],
             "match_percent": match_percent,
             "fit_level": fit_level,
-            "matched_skills": matched[:7],
-            "missing_skills": missing[:5],
-            "explanation": explanation,
-            "date_sort": parsed_date
+            "reason_text": reason_text,  # ✅ gunakan reason_text yang sudah dijelaskan di atas
+            "link": data.get("link", "#")
         })
 
-    
-    recommendations.sort(key=lambda x: (x["match_percent"], x["date_sort"]), reverse=True)
-    return recommendations[:top_n]
+    # urutkan dari yang paling cocok
+    results = sorted(results, key=lambda x: x["match_percent"], reverse=True)
+
+    return results[:top_n]
 
 
-
+# ------------------------------
+# Test singkat
+# ------------------------------
 if __name__ == "__main__":
-    print("🔍 Testing recommender with explainable output...")
-    skills = ["Python", "Machine Learning", "SQL", "AWS"]
-    res = recommend_jobs(skills)
-    for r in res[:5]:
-        print(f"{r['job_title']} ({r['match_percent']}%) - {r['fit_level']}")
-        print(f"  👉 {r['explanation']}\n")
+    G = load_graph_from_path("knowledge_graph/output/linkedin_kg_contextual.gpickle")
+    
+    # Contoh: dapatkan semua cities di United States
+    us_cities = get_cities_by_country(G, "United States")
+    print("Cities in United States:", us_cities)
+
+    test_skills = [
+        "data analyst",
+        "CNC Mastercam",
+        "Computer aided manufacturing CAM software",
+        "Customer information control system CICS",
+        "Deacom ERP",
+        "PaloAlto Advertising Plan Pro"
+    ]
+
+    # Contoh rekomendasi dengan filter country/city
+    recs = recommend_jobs(G, test_skills, top_n=5, filter_country="United States", filter_city=None)
+    for r in recs:
+        print(f"{r['job_title']} — {r['company']} ({r['location']})")
+        print(f"💼 {r['job_type']} | Posted: {r['date']} | Match: {r['match_percent']}%")
+        print(f"🧠 Skills matched: {', '.join(r['matched_skills'])}")
+        print(f"💬 {r['reason_text']}")
+        print(f"🔗 Link Job: {r['link']}")
+        print("-" * 50)

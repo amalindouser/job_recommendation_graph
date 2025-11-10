@@ -1,149 +1,117 @@
-import os
-import time
-import re
+import numpy as np
 import pandas as pd
 import networkx as nx
 from tqdm import tqdm
-from datetime import datetime
-from rapidfuzz import fuzz
+import os
 
-
-import numpy as np
+# Fix kompatibilitas NumPy 2.0
 if not hasattr(np, "float_"):
     np.float_ = np.float64
+if not hasattr(np, "int_"):
+    np.int_ = np.int64
 
-try:
-    import lxml
-except ImportError:
-    print("⚙️ Menginstal modul lxml otomatis...")
-    os.system("pip install lxml")
-    import lxml
+# Load dataset
+print("📂 Membaca dataset jobs_skills_1.csv...")
+df = pd.read_csv("import_data/jobs_skills_1.csv")
+df = df.fillna("")
+print(f"✅ Data dimuat: {len(df):,} baris\n")
 
+# Siapkan Graph kosong
+G = nx.Graph()
+print("🧠 Membuat graph kosong...\n")
 
-def extract_keywords(text):
-    text = str(text)
-    text = re.sub(r"[().,/#+-]", " ", text)
-    words = re.findall(r"\b[a-zA-Z0-9]{3,}\b", text)
-    return [w.lower() for w in words]
+progress = tqdm(df.iterrows(), total=len(df), desc="🧩 Membangun Knowledge Graph", ncols=100)
 
+for idx, row in progress:
+    job_id = str(row["job_link"]).strip()
+    job_title = str(row["job_title"]).strip()
+    company = str(row["company"]).strip()
+    location = str(row["job_location"]).strip()
+    city = str(row["search_city"]).strip()
+    country = str(row["search_country"]).strip()
+    position = str(row["search_position"]).strip()
+    job_level = str(row["job_level"]).strip()
+    job_type = str(row["job_type"]).strip()
+    skills = [s.strip().lower() for s in str(row["skills"]).split(",") if s.strip()]
+    first_seen = str(row["first_seen"]).strip()
 
+    full_location = city or location
+    if country:
+        full_location = f"{full_location}, {country}" if full_location else country
 
-def detect_status(date_str):
-    if not date_str or str(date_str).lower() in ["nan", "none", ""]:
-        return "unknown"
-    try:
-        date_formats = ["%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y"]
-        for fmt in date_formats:
-            try:
-                job_date = datetime.strptime(date_str.strip(), fmt)
-                break
-            except ValueError:
-                continue
-        else:
-            return "unknown"
+    # Tambahkan node JOB
+    G.add_node(
+        job_id,
+        type="job",
+        label=job_title or job_id,
+        title=job_title,
+        company=company or "Unknown Company",
+        location=full_location or "Unknown Location",
+        position=position or "Unknown Position",
+        job_level=job_level or "N/A",
+        job_type=job_type or "N/A",
+        skills=", ".join(skills) if skills else "",
+        date=first_seen or "",
+        link=job_id
+    )
 
-        return "expired" if (datetime.now() - job_date).days > 90 else "active"
-    except:
-        return "unknown"
+    # COMPANY
+    if company and company not in G:
+        G.add_node(company, label=company, type="company")
+    if company:
+        G.add_edge(company, job_id, relation="offers")
 
+    # LOCATION
+    if full_location and full_location not in G:
+        G.add_node(full_location, label=full_location, type="location")
+    if full_location:
+        G.add_edge(job_id, full_location, relation="based_in")
 
-def build_graph(marged_jobs_path="import_data/merged_jobs.csv",
-                tech_skills_path="import_data/Technology Skills.xlsx"):
-    start_time = time.time()
-    print("📂 Membaca dataset jobs dan technology_skills...")
+    # POSITION
+    if position and position not in G:
+        G.add_node(position, label=position, type="position")
+    if position:
+        G.add_edge(job_id, position, relation="belongs_to_field")
 
-    jobs_df = pd.read_csv(marged_jobs_path)
-    tech_df = pd.read_excel(tech_skills_path)
+    # JOB LEVEL & TYPE
+    if job_level and job_level not in G:
+        G.add_node(job_level, label=job_level, type="level")
+    if job_level:
+        G.add_edge(job_id, job_level, relation="has_level")
 
-    print(f"✅ Total jobs: {len(jobs_df)}, Total skill teknologi: {len(tech_df)}")
+    if job_type and job_type not in G:
+        G.add_node(job_type, label=job_type, type="type")
+    if job_type:
+        G.add_edge(job_id, job_type, relation="has_type")
 
-    G = nx.Graph()
+    # SKILLS
+    for skill in skills:
+        if skill and skill.lower() != "nan":
+            if skill not in G:
+                G.add_node(skill, label=skill, type="skill")
+            G.add_edge(job_id, skill, relation="requires")
 
+progress.close()
 
-    for _, row in tqdm(tech_df.iterrows(), total=len(tech_df), desc="Menambahkan skill nodes"):
-        skill = str(row.get("Example", "")).strip()
-        if skill and not G.has_node(skill):
-            G.add_node(
-                skill,
-                type="skill",
-                label=skill,
-                title=row.get("Title_Job", ""),
-                hot_technology=row.get("Hot Technology", "N"),
-                in_demand=row.get("In Demand", "N")
-            )
+# Konversi semua atribut ke string
+for node, attrs in G.nodes(data=True):
+    for k, v in attrs.items():
+        G.nodes[node][k] = str(v)
 
+for u, v, attrs in G.edges(data=True):
+    for k, v2 in attrs.items():
+        G.edges[u, v][k] = str(v2)
 
-    for _, row in tqdm(jobs_df.iterrows(), total=len(jobs_df), desc="Memetakan job ke skill"):
-        job_title = str(row.get("title", "")).strip()
-        if not job_title:
-            continue
+# Simpan Graph
+os.makedirs("knowledge_graph/output", exist_ok=True)
+output_path_graphml = "knowledge_graph/output/linkedin_kg_contextual_.graphml"
+output_path_pickle = "knowledge_graph/output/linkedin_kg_contextual_.gpickle"
 
-        company = str(row.get("company", "")).strip()
-        link = str(row.get("link", "")).strip()
-        location = str(row.get("location", "")).strip()
-        date_posted = str(row.get("date", "")).strip() or str(row.get("scrape_date", "")).strip()
-        status = detect_status(date_posted)
+print("\n💾 Menyimpan Knowledge Graph ke file (GraphML & GPickle)...")
+nx.write_graphml(G, output_path_graphml)
+nx.write_gpickle(G, output_path_pickle)
 
-        job_key = f"{job_title} - {company}"
-
-        G.add_node(
-            job_key,
-            type="job",
-            label=job_title,
-            company=company,
-            link=link,
-            location=location,
-            date=date_posted,
-            status=status
-        )
-
-
-        combined_text = job_title + " " + str(row.get("description", ""))
-        keywords = extract_keywords(combined_text)
-        if not keywords:
-            continue
-
-        matched_skills = []
-        for _, srow in tech_df.iterrows():
-            skill_example = str(srow.get("Example", "")).strip()
-            if not skill_example:
-                continue
-            skill_norm = re.sub(r"[^a-z0-9 ]", "", skill_example.lower())
-
-            for kw in keywords:
-                kw_norm = re.sub(r"[^a-z0-9 ]", "", kw)
-                ratio = max(fuzz.partial_ratio(kw_norm, skill_norm),
-                            fuzz.token_sort_ratio(kw_norm, skill_norm))
-                if ratio >= 55:
-                    if not G.has_node(skill_example):
-                        G.add_node(skill_example, type="skill", label=skill_example)
-                    G.add_edge(job_key, skill_example,
-                               relation="requires",
-                               confidence=ratio / 100)
-                    matched_skills.append(skill_example)
-                    break
-
-
-    output_dir = os.path.join("knowledge_graph", "output")
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, "jobs_tech_graph_fuzzy.graphml")
-
-    try:
-        nx.write_graphml(G, output_path)
-        print(f"\n✅ GraphML berhasil disimpan ke: {output_path}")
-    except Exception as e:
-        print(f"⚠️ Gagal menyimpan ke GraphML ({e}). Menyimpan versi cadangan .gpickle...")
-        fallback_path = os.path.join(output_dir, "jobs_tech_graph_fuzzy.gpickle")
-        nx.write_gpickle(G, fallback_path)
-        print(f"✅ Disimpan ke: {fallback_path}")
-
-    end_time = time.time()
-    print(f"📊 Total Nodes: {len(G.nodes())}, Total Edges: {len(G.edges())}")
-    print(f"⏱ Runtime: {end_time - start_time:.2f} detik")
-
-    return G
-
-
-
-if __name__ == "__main__":
-    G = build_graph()
+print("✅ Knowledge Graph berhasil dibuat!")
+print(f"📊 Total Node : {len(G.nodes):,}")
+print(f"📎 Total Edge : {len(G.edges):,}")
+print(f"📁 Disimpan di : {output_path_graphml}")

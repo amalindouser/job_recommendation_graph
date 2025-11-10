@@ -24,20 +24,30 @@ def normalize(text: str) -> str:
 # ------------------------------
 # 📂 Load knowledge graph
 # ------------------------------
+import gzip
+import networkx as nx
+import os
+
 def load_graph_from_path(graph_path: str):
     if not os.path.exists(graph_path):
         raise FileNotFoundError(f"Graph file tidak ditemukan: {graph_path}")
     
     ext = os.path.splitext(graph_path)[1].lower()
-    if ext == ".gpickle":
+
+    # ✅ Tambahan: dukung file .gpickle.gz
+    if ext == ".gz":
+        with gzip.open(graph_path, "rb") as f:
+            G = nx.read_gpickle(f)
+    elif ext == ".gpickle":
         G = nx.read_gpickle(graph_path)
     elif ext == ".graphml":
         G = nx.read_graphml(graph_path)
     else:
-        raise ValueError("Gunakan file .gpickle atau .graphml")
+        raise ValueError("Gunakan file .gpickle, .gpickle.gz, atau .graphml")
 
     print(f"✅ Graph berhasil dimuat ({len(G.nodes)} nodes, {len(G.edges)} edges)")
     return G
+
 
 # ------------------------------
 # 🔑 Skill alias
@@ -169,7 +179,7 @@ def recommend_jobs(G, user_skills, top_n=10, filter_country=None, filter_city=No
 # Test singkat
 # ------------------------------
 if __name__ == "__main__":
-    G = load_graph_from_path("knowledge_graph/output/linkedin_kg_contextual.gpickle")
+    G = load_graph_from_path("knowledge_graph/output/linkedin_kg_contextual_.gpickle.gz")
     
     # Contoh: dapatkan semua cities di United States
     us_cities = get_cities_by_country(G, "United States")

@@ -1,24 +1,44 @@
 from flask import Flask, render_template, request
 import pandas as pd
+import os
 from recommender import load_graph_from_path, recommend_jobs
 
 app = Flask(__name__)
 
-# ===== Load Knowledge Graph =====
-GRAPH_PATH = "knowledge_graph/output/linkedin_kg_contextual_.gpickle"
-G = load_graph_from_path(GRAPH_PATH)
+# ============================================================
+# 🧩 LOAD KNOWLEDGE GRAPH
+# ============================================================
+GRAPH_DIR = "knowledge_graph/output"
+GRAPH_NAME = "linkedin_kg_contextual_"
 
-# ===== Load Jobs Dataset =====
+# Deteksi otomatis apakah pakai .gpickle.gz atau .gpickle
+graph_path_gz = os.path.join(GRAPH_DIR, GRAPH_NAME + ".gpickle.gz")
+graph_path = os.path.join(GRAPH_DIR, GRAPH_NAME + ".gpickle")
+
+if os.path.exists(graph_path_gz):
+    GRAPH_PATH = graph_path_gz
+elif os.path.exists(graph_path):
+    GRAPH_PATH = graph_path
+else:
+    raise FileNotFoundError("❌ Tidak ditemukan file graph (.gpickle atau .gpickle.gz)")
+
+print(f"📦 Memuat Knowledge Graph dari: {GRAPH_PATH}")
+G = load_graph_from_path(GRAPH_PATH)
+print("✅ Graph berhasil dimuat!")
+
+# ============================================================
+# 📄 LOAD JOB DATA
+# ============================================================
 df_jobs = pd.read_csv("import_data/jobs_skills_1.csv", low_memory=False)
 
 # Bersihkan kolom country & city
 df_jobs["search_country"] = df_jobs["search_country"].astype(str).str.strip()
 df_jobs["search_city"] = df_jobs["search_city"].astype(str).str.strip()
 
-# Buang baris dengan country kosong
+# Buang baris country kosong
 df_jobs = df_jobs[df_jobs["search_country"].notna() & (df_jobs["search_country"] != "nan")]
 
-# Generate dictionary country → [cities]
+# Buat mapping country -> cities
 countries_cities = {
     country: sorted(df_jobs[df_jobs["search_country"] == country]["search_city"].unique())
     for country in df_jobs["search_country"].unique()
@@ -26,6 +46,9 @@ countries_cities = {
 countries = sorted(countries_cities.keys())
 
 
+# ============================================================
+# 🌐 ROUTES
+# ============================================================
 @app.route("/", methods=["GET", "POST"])
 def index():
     error = None
@@ -36,16 +59,18 @@ def index():
     cities = []
 
     if request.method == "POST":
-        # Ambil input skills
+        # Ambil input skill
         skills_text = request.form.get("skills", "")
         skills_input = [s.strip() for s in skills_text.split(",") if s.strip()]
 
-        # Ambil country & city
+        # Ambil lokasi
         selected_country = request.form.get("country", "")
         selected_city = request.form.get("city", "")
         cities = countries_cities.get(selected_country, [])
 
-        # === Jika tidak input skill, tampilkan berdasarkan lokasi ===
+        # ======================================
+        # Jika tidak input skill → berdasarkan lokasi
+        # ======================================
         if not skills_input:
             filtered = df_jobs.copy()
             if selected_country:
@@ -64,12 +89,9 @@ def index():
                         "job_type": row.get("job_type", ""),
                         "date": row.get("date_posted", ""),
                         "link": row.get("job_link", "#"),
-                        # ambil skill dari kolom job_skills atau skills
                         "skills_job": [
                             s.strip()
-                            for s in str(
-                                row.get("job_skills", row.get("skills", ""))
-                            ).split(",")
+                            for s in str(row.get("job_skills", row.get("skills", ""))).split(",")
                             if s.strip()
                         ],
                         "match_percent": None,
@@ -80,7 +102,9 @@ def index():
                     for _, row in filtered.head(12).iterrows()
                 ]
 
-        # === Jika ada input skill, gunakan rekomendasi berbasis graph ===
+        # ======================================
+        # Jika ada input skill → rekomendasi graph
+        # ======================================
         else:
             try:
                 results = recommend_jobs(G, skills_input, top_n=12)
@@ -101,5 +125,8 @@ def index():
     )
 
 
-if __name__ == "__main__":
-    app.run(debug=True)
+# ============================================================
+# 🚀 MAIN
+# ============================================================
+# if __name__ == "__main__":
+#     app.run(debug=True)

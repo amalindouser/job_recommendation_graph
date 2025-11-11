@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request
-import pandas as pd
 import os
+import sqlite3
+import pandas as pd
 from recommender import load_graph_from_path, recommend_jobs
 
 app = Flask(__name__)
@@ -11,7 +12,6 @@ app = Flask(__name__)
 GRAPH_DIR = "knowledge_graph/output"
 GRAPH_NAME = "linkedin_kg_contextual_"
 
-# Deteksi otomatis apakah pakai .gpickle.gz atau .gpickle
 graph_path_gz = os.path.join(GRAPH_DIR, GRAPH_NAME + ".gpickle.gz")
 graph_path = os.path.join(GRAPH_DIR, GRAPH_NAME + ".gpickle")
 
@@ -26,29 +26,33 @@ print(f"📦 Memuat Knowledge Graph dari: {GRAPH_PATH}")
 G = load_graph_from_path(GRAPH_PATH)
 print("✅ Graph berhasil dimuat!")
 
-# ============================================================
-# 📄 LOAD JOB DATA
-# ============================================================
-df_jobs = pd.read_csv("import_data/jobs_skills_1.csv", low_memory=False)
 
-# Bersihkan kolom country & city
-df_jobs["search_country"] = df_jobs["search_country"].astype(str).str.strip()
-df_jobs["search_city"] = df_jobs["search_city"].astype(str).str.strip()
+DB_PATH = os.path.join(os.path.dirname(__file__), "jobs.db")
 
-# Buang baris country kosong
-df_jobs = df_jobs[df_jobs["search_country"].notna() & (df_jobs["search_country"] != "nan")]
 
-# Buat mapping country -> cities
+def get_jobs(country=None, city=None):
+    """Ambil pekerjaan dari SQLite, bisa filter country & city"""
+    conn = sqlite3.connect(DB_PATH)
+    query = "SELECT * FROM jobs WHERE 1=1"
+    params = []
+    if country:
+        query += " AND search_country=?"
+        params.append(country)
+    if city:
+        query += " AND search_city=?"
+        params.append(city)
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+    return df
+
+
+all_jobs = get_jobs()
 countries_cities = {
-    country: sorted(df_jobs[df_jobs["search_country"] == country]["search_city"].unique())
-    for country in df_jobs["search_country"].unique()
+    country: sorted(all_jobs[all_jobs["search_country"] == country]["search_city"].unique())
+    for country in all_jobs["search_country"].unique()
 }
 countries = sorted(countries_cities.keys())
 
-
-# ============================================================
-# 🌐 ROUTES
-# ============================================================
 @app.route("/", methods=["GET", "POST"])
 def index():
     error = None
@@ -68,15 +72,9 @@ def index():
         selected_city = request.form.get("city", "")
         cities = countries_cities.get(selected_country, [])
 
-        # ======================================
-        # Jika tidak input skill → berdasarkan lokasi
-        # ======================================
+        
         if not skills_input:
-            filtered = df_jobs.copy()
-            if selected_country:
-                filtered = filtered[filtered["search_country"] == selected_country]
-            if selected_city:
-                filtered = filtered[filtered["search_city"] == selected_city]
+            filtered = get_jobs(selected_country, selected_city)
 
             if filtered.empty:
                 error = "Tidak ditemukan pekerjaan di lokasi tersebut."
@@ -102,9 +100,7 @@ def index():
                     for _, row in filtered.head(12).iterrows()
                 ]
 
-        # ======================================
-        # Jika ada input skill → rekomendasi graph
-        # ======================================
+        
         else:
             try:
                 results = recommend_jobs(G, skills_input, top_n=12)
@@ -125,8 +121,5 @@ def index():
     )
 
 
-# ============================================================
-# 🚀 MAIN
-# ============================================================
 # if __name__ == "__main__":
 #     app.run(debug=True)

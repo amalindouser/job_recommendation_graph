@@ -1,16 +1,20 @@
-.vercel
-knowledge_graph/output/jobs_tech_graph_fuzzy.graphml
-knowledge_graph/output/jobs_tech_graph_fuzzy.graphml
-knowledge_graph/output/jobs_tech_graph_fuzzy.graphml
-knowledge_graph/output/jobs_tech_graph_fuzzy.graphml
-knowledge_graph/output/*.gpickle
-import_data/*.csv
-knowledge_graph/output/*.gpickle
-import_data/*.csv
+# Environment
 .env
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-*.db
-instance/
 
+# Flask instance & database
+instance/
+*.db
+
+# Data / Graph
+knowledge_graph/output/*.gpickle.gz
+import_data/*.csv
+linkedin_kg_contextual_.gpickle.gz
+
+# Deployment
+.vercel
+logs/

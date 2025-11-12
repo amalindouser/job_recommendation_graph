@@ -3,44 +3,35 @@ import os
 import pandas as pd
 import psycopg2
 import networkx as nx
-import io
-import requests
 from recommender import recommend_jobs
 from dotenv import load_dotenv
+import gdown
+import gzip
+
 
 app = Flask(__name__)
 
-# ============================================================
-# ⚙️ LOAD ENV VARIABLES
-# ============================================================
+
 load_dotenv()
 DB_URL = os.getenv("DB_URL")
-
 if not DB_URL:
-    raise ValueError("❌ Environment variable DB_URL tidak ditemukan. Pastikan ada di .env atau di Vercel.")
+    raise ValueError("❌ Environment variable DB_URL tidak ditemukan. Pastikan ada di .env")
 
 
-# ============================================================
-# ☁️ LOAD KNOWLEDGE GRAPH DARI CLOUD (GOOGLE DRIVE)
-# ============================================================
-GRAPH_URL = "https://drive.google.com/uc?export=download&id=1UJ1yjK6BxEH7ivAi4asKxLMRR8qg_ttI"
+GRAPH_URL = "https://drive.google.com/uc?id=1UJ1yjK6BxEH7ivAi4asKxLMRR8qg_ttI"
+OUTPUT_FILE = "linkedin_kg_contextual_.gpickle.gz"
+
+print("☁️ Mengunduh Knowledge Graph dari Google Drive...")
+gdown.download(GRAPH_URL, OUTPUT_FILE, quiet=False)
 
 try:
-    print("☁️ Mengunduh Knowledge Graph dari Google Drive...")
-    response = requests.get(GRAPH_URL)
-    response.raise_for_status()
-
-    with io.BytesIO(response.content) as f:
+    with gzip.open(OUTPUT_FILE, 'rb') as f:
         G = nx.read_gpickle(f)
-
-    print("✅ Graph berhasil dimuat dari cloud!")
+    print("✅ Graph berhasil dimuat!")
 except Exception as e:
-    raise RuntimeError(f"❌ Gagal memuat graph dari cloud: {e}")
+    raise RuntimeError(f"❌ Gagal memuat graph: {e}")
 
 
-# ============================================================
-# 🔗 Koneksi ke Neon PostgreSQL
-# ============================================================
 def get_jobs(country=None, city=None):
     """Ambil data dari tabel jobs_skills di NeonDB"""
     conn = psycopg2.connect(DB_URL)
@@ -59,16 +50,12 @@ def get_jobs(country=None, city=None):
     return df
 
 
-# ============================================================
-# 🗺️ Siapkan data lokasi (negara dan kota)
-# ============================================================
 print("📡 Mengambil semua data lokasi dari NeonDB...")
 all_jobs = get_jobs()
-
 print("📊 Kolom di tabel jobs:", all_jobs.columns.tolist())
 print("📈 Jumlah data:", len(all_jobs))
 
-# --- fallback jika kolom beda nama ---
+# fallback jika kolom berbeda nama
 if not all_jobs.empty:
     columns = [c.lower() for c in all_jobs.columns]
     if "search_country" not in columns and "country" in columns:
@@ -81,22 +68,16 @@ if "search_country" not in all_jobs.columns:
 if "search_city" not in all_jobs.columns:
     all_jobs["search_city"] = ""
 
-countries_cities = (
-    {
-        country: sorted(
-            all_jobs[all_jobs["search_country"] == country]["search_city"].dropna().unique()
-        )
-        for country in all_jobs["search_country"].dropna().unique()
-    }
-    if not all_jobs.empty
-    else {}
-)
+countries_cities = {
+    country: sorted(all_jobs[all_jobs["search_country"] == country]["search_city"].dropna().unique())
+    for country in all_jobs["search_country"].dropna().unique()
+} if not all_jobs.empty else {}
+
 countries = sorted(countries_cities.keys())
 
-
-# ============================================================
+# =============================
 # 🌍 ROUTES
-# ============================================================
+# =============================
 @app.route("/", methods=["GET", "POST"])
 def index():
     error = None
@@ -106,16 +87,13 @@ def index():
     selected_city = ""
 
     if request.method == "POST":
-        # Ambil input skill
         skills_text = request.form.get("skills", "")
         skills_input = [s.strip() for s in skills_text.split(",") if s.strip()]
-
-        # Ambil lokasi
         selected_country = request.form.get("country", "")
         selected_city = request.form.get("city", "")
 
         if not skills_input:
-            # rekomendasi berdasarkan lokasi saja
+            # rekomendasi berdasarkan lokasi
             filtered = get_jobs(selected_country, selected_city)
             if filtered.empty:
                 error = "Tidak ditemukan pekerjaan di lokasi tersebut."
@@ -128,11 +106,7 @@ def index():
                         "job_type": row.get("job_type", ""),
                         "date": row.get("first_seen", ""),
                         "link": row.get("job_link", "#"),
-                        "skills_job": [
-                            s.strip()
-                            for s in str(row.get("skills", "")).split(",")
-                            if s.strip()
-                        ],
+                        "skills_job": [s.strip() for s in str(row.get("skills", "")).split(",") if s.strip()],
                         "match_percent": None,
                         "matched_skills": [],
                         "missing_skills": [],
@@ -159,8 +133,6 @@ def index():
         cities=countries_cities.get(selected_country, []),
     )
 
-
-# ============================================================
-# 🚀 ENTRY POINT UNTUK VERCEL
-# ============================================================
-# Tidak pakai app.run() karena Vercel otomatis handle serverless
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)

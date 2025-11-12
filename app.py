@@ -2,7 +2,10 @@ from flask import Flask, render_template, request
 import os
 import pandas as pd
 import psycopg2
-from recommender import load_graph_from_path, recommend_jobs
+import networkx as nx
+import io
+import requests
+from recommender import recommend_jobs
 from dotenv import load_dotenv
 
 app = Flask(__name__)
@@ -18,24 +21,21 @@ if not DB_URL:
 
 
 # ============================================================
-# 🧩 LOAD KNOWLEDGE GRAPH
+# ☁️ LOAD KNOWLEDGE GRAPH DARI CLOUD (GOOGLE DRIVE)
 # ============================================================
-GRAPH_DIR = "knowledge_graph/output"
-GRAPH_NAME = "linkedin_kg_contextual_"
+GRAPH_URL = "https://drive.google.com/uc?export=download&id=1UJ1yjK6BxEH7ivAi4asKxLMRR8qg_ttI"
 
-graph_path_gz = os.path.join(GRAPH_DIR, GRAPH_NAME + ".gpickle.gz")
-graph_path = os.path.join(GRAPH_DIR, GRAPH_NAME + ".gpickle")
+try:
+    print("☁️ Mengunduh Knowledge Graph dari Google Drive...")
+    response = requests.get(GRAPH_URL)
+    response.raise_for_status()
 
-if os.path.exists(graph_path_gz):
-    GRAPH_PATH = graph_path_gz
-elif os.path.exists(graph_path):
-    GRAPH_PATH = graph_path
-else:
-    raise FileNotFoundError("❌ Tidak ditemukan file graph (.gpickle atau .gpickle.gz)")
+    with io.BytesIO(response.content) as f:
+        G = nx.read_gpickle(f)
 
-print(f"📦 Memuat Knowledge Graph dari: {GRAPH_PATH}")
-G = load_graph_from_path(GRAPH_PATH)
-print("✅ Graph berhasil dimuat!")
+    print("✅ Graph berhasil dimuat dari cloud!")
+except Exception as e:
+    raise RuntimeError(f"❌ Gagal memuat graph dari cloud: {e}")
 
 
 # ============================================================
@@ -160,6 +160,7 @@ def index():
     )
 
 
-
-# if __name__ == "__main__":
-#     app.run()
+# ============================================================
+# 🚀 ENTRY POINT UNTUK VERCEL
+# ============================================================
+# Tidak pakai app.run() karena Vercel otomatis handle serverless

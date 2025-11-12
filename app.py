@@ -8,65 +8,87 @@ from dotenv import load_dotenv
 import gdown
 import gzip
 
-
+# =============================
+# ⚙️ Inisialisasi Flask
+# =============================
 app = Flask(__name__)
 
-
+# =============================
+# ⚙️ Load environment variables
+# =============================
 load_dotenv()
 DB_URL = os.getenv("DB_URL")
 if not DB_URL:
     raise ValueError("❌ Environment variable DB_URL tidak ditemukan. Pastikan ada di .env")
 
-
+# =============================
+# ☁️ Load Knowledge Graph
+# =============================
 GRAPH_URL = "https://drive.google.com/uc?id=1UJ1yjK6BxEH7ivAi4asKxLMRR8qg_ttI"
-OUTPUT_FILE = "linkedin_kg_contextual_.gpickle.gz"
+GRAPH_FILE = "linkedin_kg_contextual_.gpickle.gz"
 
-print("☁️ Mengunduh Knowledge Graph dari Google Drive...")
-gdown.download(GRAPH_URL, OUTPUT_FILE, quiet=False)
+# download hanya jika belum ada
+if not os.path.exists(GRAPH_FILE):
+    print("☁️ Mengunduh Knowledge Graph dari Google Drive...")
+    gdown.download(GRAPH_URL, GRAPH_FILE, quiet=False)
+else:
+    print("☁️ Graph sudah ada, tidak perlu download ulang.")
 
+# load graph gzip
 try:
-    with gzip.open(OUTPUT_FILE, 'rb') as f:
+    with gzip.open(GRAPH_FILE, 'rb') as f:
         G = nx.read_gpickle(f)
     print("✅ Graph berhasil dimuat!")
 except Exception as e:
     raise RuntimeError(f"❌ Gagal memuat graph: {e}")
 
-
+# =============================
+# 🔗 Fungsi koneksi ke Neon PostgreSQL
+# =============================
 def get_jobs(country=None, city=None):
     """Ambil data dari tabel jobs_skills di NeonDB"""
-    conn = psycopg2.connect(DB_URL)
-    query = "SELECT * FROM jobs_skills WHERE 1=1"
-    params = []
+    try:
+        conn = psycopg2.connect(DB_URL)
+        query = "SELECT * FROM jobs_skills WHERE 1=1"
+        params = []
 
-    if country:
-        query += " AND search_country = %s"
-        params.append(country)
-    if city:
-        query += " AND search_city = %s"
-        params.append(city)
+        if country:
+            query += " AND search_country = %s"
+            params.append(country)
+        if city:
+            query += " AND search_city = %s"
+            params.append(city)
 
-    df = pd.read_sql(query, conn, params=params)
-    conn.close()
+        df = pd.read_sql(query, conn, params=params)
+    except Exception as e:
+        print(f"⚠️ Error koneksi DB: {e}")
+        df = pd.DataFrame()
+    finally:
+        if 'conn' in locals():
+            conn.close()
     return df
 
-
+# =============================
+# 🗺️ Siapkan data lokasi
+# =============================
 print("📡 Mengambil semua data lokasi dari NeonDB...")
 all_jobs = get_jobs()
-print("📊 Kolom di tabel jobs:", all_jobs.columns.tolist())
-print("📈 Jumlah data:", len(all_jobs))
+if all_jobs.empty:
+    print("⚠️ Tidak ada data jobs.")
+else:
+    print("📊 Kolom di tabel jobs:", all_jobs.columns.tolist())
+    print("📈 Jumlah data:", len(all_jobs))
 
-# fallback jika kolom berbeda nama
+# fallback nama kolom
 if not all_jobs.empty:
-    columns = [c.lower() for c in all_jobs.columns]
-    if "search_country" not in columns and "country" in columns:
+    if "country" in all_jobs.columns and "search_country" not in all_jobs.columns:
         all_jobs.rename(columns={"country": "search_country"}, inplace=True)
-    if "search_city" not in columns and "city" in columns:
+    if "city" in all_jobs.columns and "search_city" not in all_jobs.columns:
         all_jobs.rename(columns={"city": "search_city"}, inplace=True)
 
-if "search_country" not in all_jobs.columns:
-    all_jobs["search_country"] = ""
-if "search_city" not in all_jobs.columns:
-    all_jobs["search_city"] = ""
+for col in ["search_country", "search_city"]:
+    if col not in all_jobs.columns:
+        all_jobs[col] = ""
 
 countries_cities = {
     country: sorted(all_jobs[all_jobs["search_country"] == country]["search_city"].dropna().unique())
@@ -93,7 +115,6 @@ def index():
         selected_city = request.form.get("city", "")
 
         if not skills_input:
-            # rekomendasi berdasarkan lokasi
             filtered = get_jobs(selected_country, selected_city)
             if filtered.empty:
                 error = "Tidak ditemukan pekerjaan di lokasi tersebut."
@@ -133,6 +154,7 @@ def index():
         cities=countries_cities.get(selected_country, []),
     )
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+
+# if __name__ == '__main__':
+#     port = int(os.environ.get("PORT", 5000))
+#     app.run(host="0.0.0.0", port=port, debug=True)

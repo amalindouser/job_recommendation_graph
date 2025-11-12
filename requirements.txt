@@ -1,6 +1,6 @@
-Flask==2.3.5
-pandas==2.1.1
-psycopg2-binary==2.9.9
-networkx==3.1
-python-dotenv==1.0.0
-gdown==4.7.1
+Flask==2.3.3
+pandas
+psycopg2-binary
+networkx
+python-dotenv
+gdown

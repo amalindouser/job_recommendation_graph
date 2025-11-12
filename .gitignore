@@ -13,3 +13,4 @@ __pycache__/
 *.pyo
 *.db
 instance/
+knowledge_graph/output/*.gpickle.gz

@@ -7,3 +7,9 @@ knowledge_graph/output/*.gpickle
 import_data/*.csv
 knowledge_graph/output/*.gpickle
 import_data/*.csv
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.db
+instance/

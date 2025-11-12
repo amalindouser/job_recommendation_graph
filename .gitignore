@@ -18,3 +18,5 @@ linkedin_kg_contextual_.gpickle.gz
 # Deployment
 .vercel
 logs/
+
+.vercel
